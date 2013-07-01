@@ -1192,7 +1192,8 @@ class _AgentBase(object):
         d.addCallback(cbConnected)
         return d
 
-
+class ProtocolNotSupported(Exception):
+    pass
 
 class Agent(_AgentBase):
     """
@@ -1212,16 +1213,26 @@ class Agent(_AgentBase):
         C{connectSSL} for specifying the local address to bind to.
 
     @since: 9.0
+
+    @ivar _wrappingEndpoint: If not C{None}, the endpoint will be wrapped with
+    this endpoint. This is useful for wrapping, for example, the Agent with a
+    SOCKS enabling endpoint.
+
+    @ivar _wrappingEndpointKwargs: Optional keyword arguments to be passed to
+    the wrapping endpoint. By default we will only pass the host and port
+    arguments to the _wrappingEndpoint.
+    
     """
 
     def __init__(self, reactor, contextFactory=WebClientContextFactory(),
                  connectTimeout=None, bindAddress=None,
-                 pool=None):
+                 pool=None, wrappingEndpoint=None, wrappingEndpointKwargs={}):
         _AgentBase.__init__(self, reactor, pool)
         self._contextFactory = contextFactory
         self._connectTimeout = connectTimeout
         self._bindAddress = bindAddress
-
+        self._wrappingEndpoint = wrappingEndpoint
+        self._wrappingEndpointKwargs = wrappingEndpointKwargs
 
     def _wrapContextFactory(self, host, port):
         """
@@ -1262,8 +1273,15 @@ class Agent(_AgentBase):
         if self._connectTimeout is not None:
             kwargs['timeout'] = self._connectTimeout
         kwargs['bindAddress'] = self._bindAddress
-        if scheme == 'http':
+
+        if scheme == 'http' and self._wrappingEndpoint:
+            return self._wrappingEndpoint(host, port,
+                                          **self._wrappingEndpointKwargs)
+        elif scheme == 'http':
             return TCP4ClientEndpoint(self._reactor, host, port, **kwargs)
+        elif scheme == 'https' and self._wrappingEndpoint:
+            raise ProtocolNotSupported(
+                    "HTTPS is currently not supported with a wrapping endpoint")
         elif scheme == 'https':
             return SSL4ClientEndpoint(self._reactor, host, port,
                                       self._wrapContextFactory(host, port),
